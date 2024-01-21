@@ -89,18 +89,26 @@ impl PM{
 
     fn take_new_entry_input(){
         let mut entry_name = String::new();
+        println!("You can type in 'quit' anytime to quit the action");
         println!("enter the entry name: ");
+        if PM::check_is_input_quit(&entry_name){
+            return;
+        }
         stdin().read_line(&mut entry_name);
         if PM::confirm_input(){
             
-        }else{
+        }
+        
+        else{
             PM::take_new_entry_input();
         }
     }
     
 
 
-
+    fn check_is_input_quit(input:&String)->bool{
+        return input == "Quit" || input == "quit" || input == "QUIT"
+    }
 
     fn confirm_input()->bool{
         println!("press y to confirm or n to enter again:");
