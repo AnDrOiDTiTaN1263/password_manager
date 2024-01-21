@@ -7,6 +7,7 @@ use base64::{engine::general_purpose, Engine};
 use pbkdf2::pbkdf2_hmac;
 use rand::{RngCore, Rng};
 use sha2::Sha256;
+// use termion::{raw::IntoRawMode, input::TermRead};
 
 /*
     pbkdf usage: 
@@ -24,6 +25,22 @@ struct PM{
     filepath: String,
     entries: Vec<Vec<u8>>,
     cipher: Option<Aes256Gcm>
+}
+
+struct Entry{
+    name: String,
+    note: Option<String>,
+    user: Option<String>,
+    pass: Option<String>,
+}
+
+impl Entry{
+    fn stringify(&self)->String{
+        return self.name.clone() + "$" + &self.user.clone().unwrap_or("N/A".to_string()) + "$" + &self.pass.clone().unwrap_or("N/A".to_string()) + "$" + &self.note.clone().unwrap_or("N/A".to_string());
+    }
+    fn display(&self){
+        println!("Entry name: {}\n\tUser: {}\n\tPass:{}\n\tnote:{}", self.name, self.user.clone().unwrap_or("N/A".to_string()), self.pass.clone().unwrap_or("N/A".to_string()), self.note.clone().unwrap_or("N/A".to_string()));
+    }
 }
 
 #[allow(unused,dead_code)]
@@ -87,25 +104,37 @@ impl PM{
         }
     }
 
-    fn take_new_entry_input(){
-        let mut entry_name = String::new();
+    fn take_new_entry_input(&mut self){
+        let mut input = String::new();
         println!("You can type in 'quit' anytime to quit the action");
         println!("enter the entry name: ");
-        if PM::check_is_input_quit(&entry_name){
+        stdin().read_line(&mut input);
+        if PM::check_is_input_quit(&input){
             return;
-        }
-        stdin().read_line(&mut entry_name);
-        if PM::confirm_input(){
-            
-        }
-        
-        else{
-            PM::take_new_entry_input();
-        }
+        }   
+        input = input[0..input.len()-1].to_string();
+        let entry_name = input.clone();
+        input = "".to_string();
+        println!("enter the entry username: ");
+        stdin().read_line(&mut input);
+        if PM::check_is_input_quit(&input){
+            return;
+        }   
+        input = input[0..input.len()-1].to_string();
+        let entry_user_name = input.clone();
+        input = "".to_string();
+        println!("enter the entry password: ");
+        stdin().read_line(&mut input);
+        if PM::check_is_input_quit(&input){
+            return;
+        }   
+        input = input[0..input.len()-1].to_string();
+        let entry_pass = input.clone();
+
+        let entry = entry_name +"$"+&entry_user_name+"$"+ &entry_pass+"$";
+        self.entries.push(entry.as_bytes().to_vec());
     }
     
-
-
     fn check_is_input_quit(input:&String)->bool{
         return input == "Quit" || input == "quit" || input == "QUIT"
     }
@@ -116,7 +145,6 @@ impl PM{
         stdin().read_line(&mut buf);
         return buf == "Yes\n" || buf == "yes\n" || buf == "Y\n"|| buf == "y\n";
     }
-
 
     /*
         below are the functions associated with pbkdf usage
@@ -271,11 +299,24 @@ impl PM{
         let mut file: File = File::open(&self.filepath).expect("unable to open entries file to read");
         let mut buf: Vec<u8> = vec![];
         file.read_to_end(&mut buf).expect("unable to read from file");
-        let mut contents = String::from_utf8(buf).expect("unable to stringify");
-        let mut contents = contents.split("\n").collect::<Vec<&str>>();
+        let mut contents: String = String::from_utf8(buf).expect("unable to stringify");
+        let mut contents: Vec<&str> = contents.split("\n").collect::<Vec<&str>>();
         contents.remove(0);
         println!("{contents:?}");
+        //we now have the entries in their encrypted form, however, we want to decrypt them and store them in our entries vec to be used
+        //TODO, first, have to figure out how we are writing the entries to the file
     }
+
+    /* */
+    fn display_entries(&self){
+        println!("displaying entries...");
+        for entry in &self.entries{
+            let entry = String::from_utf8(entry.clone()).expect("unable to stringify entry");
+            let entry = entry.split("$").collect::<Vec<&str>>();
+            println!("Entry:\n\tentry name: {}\n\tentry username: {}\n\tentry password: {} ", entry[0], entry[1], entry[2]);
+        }
+    }
+
 
 
 }
@@ -284,13 +325,11 @@ impl PM{
 
 fn main(){
     // let pm = PM::default();
-    let pm = PM::new("PMfiles/safe.pswd".to_string()).expect("filepath given in parameter was not correct");
-    pm.read_entries_from_file();
+    let mut pm = PM::new("PMfiles/safe.pswd".to_string()).expect("filepath given in parameter was not correct");    
+    for x in 0..100{
+        pm.entries.push(format!("entry{x}$user{x}$pass{x}").as_bytes().to_vec())
+    }
+    // pm.display_entries();
 
-    // PM::take_password_input();
-    // pm.read_first_line();
-    // pm.generate_and_write_hash("asdf1234".to_string());
-    // pm.verify_password("asdf1234".to_string());
-    // pm.write_first_line_to_file("asdf".to_string());
-    // println!("{:?}",pm.read_first_line());
+
 }
