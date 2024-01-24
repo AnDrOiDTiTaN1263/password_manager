@@ -1,4 +1,3 @@
-
 use std::{env, path::Path, fs::{self, File}, io::{stdin, Read, Write}, vec};
 use std::fs::read_to_string;
 use aead::{OsRng, KeyInit, Aead, AeadCore, Key, generic_array::GenericArray};
@@ -26,14 +25,14 @@ struct PM{
     entries: Vec<Vec<u8>>,
     cipher: Option<Aes256Gcm>
 }
-
+#[allow(dead_code,unused)]
 struct Entry{
     name: String,
     note: Option<String>,
     user: Option<String>,
     pass: Option<String>,
 }
-
+#[allow(dead_code,unused)]
 impl Entry{
     fn stringify(&self)->String{
         return self.name.clone() + "$" + &self.user.clone().unwrap_or("N/A".to_string()) + "$" + &self.pass.clone().unwrap_or("N/A".to_string()) + "$" + &self.note.clone().unwrap_or("N/A".to_string());
@@ -154,7 +153,6 @@ impl PM{
         let first_line = self.read_first_line();
         let split = PM::split_first_line(general_purpose::STANDARD.decode(first_line[29..first_line.len()-27].to_string()).unwrap());
         let salt = split.0;
-
         let enc_key = split.1;
         let mut kek2 = [0u8;32];
         pbkdf2_hmac::<Sha256>(pass.as_bytes(), &salt.as_slice(), 600_000, &mut kek2);
@@ -189,7 +187,7 @@ impl PM{
     }
 
     fn read_first_line(&self)->String{
-        read_to_string(&self.filepath).unwrap().lines().next().unwrap().to_string()[29..].to_string()
+        read_to_string(&self.filepath).unwrap().lines().next().unwrap().to_string()
     }   
     
     fn write_first_line_to_file(&self, to_write:String){
@@ -214,6 +212,7 @@ impl PM{
     
     fn split_cipher_text(cipher_text:Vec<u8>)->(Vec<u8>,Vec<u8>){
         let split: (&[u8], &[u8]) =   cipher_text.split_at(cipher_text.len()-12);
+        println!("{split:?}");
         (split.0.to_vec(), split.1.to_vec())
     }
 
@@ -246,7 +245,7 @@ impl PM{
         match &self.cipher {
             Some(cipher)=>{
                 let split = PM::split_cipher_text(cipher_text);
-                return Some(cipher.decrypt(GenericArray::from_slice(split.0.as_slice()), split.1.as_slice()).expect("unable to decrypt"));
+                return Some(cipher.decrypt(GenericArray::from_slice(split.1.as_slice()), split.0.as_slice()).expect("unable to decrypt"));
             }
             None=>{
                 println!("cipher was not initialised");
@@ -288,23 +287,30 @@ impl PM{
 
     /* below are the two basic read/write functions */
     fn write_entries_to_file(&self){
-        let mut file = File::open(&self.filepath).expect("unable to open file");
+        let mut file = File::options().read(true).write(true).open(&self.filepath).expect("unable to open file for writing");
+        let mut to_write = self.read_first_line();
+        to_write += "\n";
         for entry in &self.entries{
-            file.write(general_purpose::STANDARD.encode(entry).as_bytes());
-            file.write(b"\n");
+            let mut entry = self.encrypt(String::from_utf8(entry.clone()).unwrap()).expect("unable to encrypt");
+            to_write += &String::from_utf8(general_purpose::STANDARD.encode(entry).as_bytes().to_vec()).expect("unable to stringify base64");
+            to_write += "\n";
+
         }
+        to_write.pop();
+        file.write_all(to_write.as_bytes());
+        println!("successfully wrote {:?} entries to file", self.entries.len());
     }
     
-    fn read_entries_from_file(&self){
+    fn read_entries_from_file(&mut self){
         let mut file: File = File::open(&self.filepath).expect("unable to open entries file to read");
         let mut buf: Vec<u8> = vec![];
         file.read_to_end(&mut buf).expect("unable to read from file");
         let mut contents: String = String::from_utf8(buf).expect("unable to stringify");
         let mut contents: Vec<&str> = contents.split("\n").collect::<Vec<&str>>();
         contents.remove(0);
-        println!("{contents:?}");
-        //we now have the entries in their encrypted form, however, we want to decrypt them and store them in our entries vec to be used
-        //TODO, first, have to figure out how we are writing the entries to the file
+        for line in contents{
+            self.decrypt(general_purpose::STANDARD.decode(line).expect("unable to decode base64 bytes for decrypting")).expect("unable to decrypt");
+        }
     }
 
     /* */
@@ -317,7 +323,7 @@ impl PM{
         }
     }
 
-
+    
 
 }
 
@@ -326,10 +332,10 @@ impl PM{
 fn main(){
     // let pm = PM::default();
     let mut pm = PM::new("PMfiles/safe.pswd".to_string()).expect("filepath given in parameter was not correct");    
+    pm.verify_password("asdf1234".to_string());
     for x in 0..100{
         pm.entries.push(format!("entry{x}$user{x}$pass{x}").as_bytes().to_vec())
     }
-    // pm.display_entries();
-
-
+    pm.read_entries_from_file();
+    pm.display_entries();
 }
