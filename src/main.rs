@@ -1,11 +1,16 @@
-use std::{env, path::Path, fs::{self, File}, io::{stdin, Read, Write}, vec};
+mod entry;
+mod password_manager;
+mod helper;
+
+use std::{env, path::Path, fs::{self, File}, io::{stdin, Read, Write, stdout}, vec, process::exit};
 use std::fs::read_to_string;
-use aead::{OsRng, KeyInit, Aead, AeadCore, Key, generic_array::GenericArray};
+use aead::{OsRng, KeyInit, Aead, AeadCore, generic_array::GenericArray, Key};
 use aes_gcm::{Aes256Gcm, AesGcm};
 use base64::{engine::general_purpose, Engine};
 use pbkdf2::pbkdf2_hmac;
 use rand::{RngCore, Rng};
 use sha2::Sha256;
+use termion::{raw::IntoRawMode, input::TermRead, event::Key as K};
 // use termion::{raw::IntoRawMode, input::TermRead};
 
 /*
@@ -19,28 +24,14 @@ use sha2::Sha256;
             if done successfully store it in the option key and init cipher based on that key
 */
 
+use entry::Entry;
 #[allow(unused,dead_code)]
 struct PM{
     filepath: String,
-    entries: Vec<Vec<u8>>,
+    entries: Vec<Entry>,
     cipher: Option<Aes256Gcm>
 }
 #[allow(dead_code,unused)]
-struct Entry{
-    name: String,
-    note: Option<String>,
-    user: Option<String>,
-    pass: Option<String>,
-}
-#[allow(dead_code,unused)]
-impl Entry{
-    fn stringify(&self)->String{
-        return self.name.clone() + "$" + &self.user.clone().unwrap_or("N/A".to_string()) + "$" + &self.pass.clone().unwrap_or("N/A".to_string()) + "$" + &self.note.clone().unwrap_or("N/A".to_string());
-    }
-    fn display(&self){
-        println!("Entry name: {}\n\tUser: {}\n\tPass:{}\n\tnote:{}", self.name, self.user.clone().unwrap_or("N/A".to_string()), self.pass.clone().unwrap_or("N/A".to_string()), self.note.clone().unwrap_or("N/A".to_string()));
-    }
-}
 
 #[allow(unused,dead_code)]
 impl PM{
@@ -64,7 +55,7 @@ impl PM{
             println!("creating new file for entries...");
             fs::create_dir(cur_dir.to_str().unwrap().to_owned()+&"/PMfiles");
             let mut file = fs::File::create(path).expect("unable to create save file");
-            pass = Some(PM::take_password_input());
+            pass = Some(helper::take_password_input());
             file.write_all("---START OF HASH SIGNATURE---END OF HASH SIGNATURE---\n".as_bytes());
         }
         let pm =  PM{filepath:path.to_str().unwrap().to_string(), entries:vec![], cipher:None};
@@ -93,20 +84,17 @@ impl PM{
         }
     }   
 
-    /*input and user input validation functions below */
-    fn take_password_input()->String{
-        let pass = rpassword::prompt_password("please enter your password:").expect("unable to take pass");
-        if PM::confirm_input(){
-            return pass;
-        }else{
-            return PM::take_password_input();
-        }
-    }
 
     fn take_new_entry_input(&mut self){
         let mut input = String::new();
         println!("You can type in 'quit' anytime to quit the action");
         println!("enter the entry name: ");
+        stdin().read_line(&mut input);
+        if PM::check_is_input_quit(&input){
+            return;
+        }   
+        input = input[0..input.len()-1].to_string();
+        println!("enter any notes for this entry, or just press enter to continue: ");
         stdin().read_line(&mut input);
         if PM::check_is_input_quit(&input){
             return;
@@ -129,9 +117,7 @@ impl PM{
         }   
         input = input[0..input.len()-1].to_string();
         let entry_pass = input.clone();
-
-        let entry = entry_name +"$"+&entry_user_name+"$"+ &entry_pass+"$";
-        self.entries.push(entry.as_bytes().to_vec());
+        self.entries.push(Entry::new(entry_name, Some(entry_user_name), Some(entry_pass), None));
     }
     
     fn check_is_input_quit(input:&String)->bool{
@@ -233,13 +219,6 @@ impl PM{
 
     }
     
-    fn encrypt_then_write(&mut self, plain_text:String){
-        //note this function does not actually write anything to file
-        if let Some(cipher_text) = self.encrypt(plain_text){
-            self.entries.push(cipher_text);
-        }
-    }
-
     fn decrypt(&self, cipher_text:Vec<u8>)->Option<Vec<u8>>{
         /*TODO */
         match &self.cipher {
@@ -291,7 +270,7 @@ impl PM{
         let mut to_write = self.read_first_line();
         to_write += "\n";
         for entry in &self.entries{
-            let mut entry = self.encrypt(String::from_utf8(entry.clone()).unwrap()).expect("unable to encrypt");
+            let mut entry = self.encrypt(String::from_utf8(entry.stringify().into()).unwrap()).expect("unable to encrypt");
             to_write += &String::from_utf8(general_purpose::STANDARD.encode(entry).as_bytes().to_vec()).expect("unable to stringify base64");
             to_write += "\n";
 
@@ -317,13 +296,27 @@ impl PM{
     fn display_entries(&self){
         println!("displaying entries...");
         for entry in &self.entries{
-            let entry = String::from_utf8(entry.clone()).expect("unable to stringify entry");
-            let entry = entry.split("$").collect::<Vec<&str>>();
-            println!("Entry:\n\tentry name: {}\n\tentry username: {}\n\tentry password: {} ", entry[0], entry[1], entry[2]);
+            entry.display();
         }
     }
 
-    
+    fn menu(){
+        loop {
+            let stdin = stdin();
+            let mut stdout = stdout().into_raw_mode().unwrap();
+            write!(stdout, "press ESC to exit at any time").unwrap();
+            println!("{:?}",termion::terminal_size().expect("unable to get terminal size"));
+            stdout.flush().unwrap();
+            for c in stdin.keys(){
+                if c.unwrap() == K::Esc{
+                    exit(0);
+                }else{
+
+                }
+            }
+        }
+    }
+
 
 }
 
@@ -331,11 +324,7 @@ impl PM{
 
 fn main(){
     // let pm = PM::default();
-    let mut pm = PM::new("PMfiles/safe.pswd".to_string()).expect("filepath given in parameter was not correct");    
-    pm.verify_password("asdf1234".to_string());
-    for x in 0..100{
-        pm.entries.push(format!("entry{x}$user{x}$pass{x}").as_bytes().to_vec())
-    }
-    pm.read_entries_from_file();
-    pm.display_entries();
+    // let mut pm = PM::new("PMfiles/safe.pswd".to_string()).expect("filepath given in parameter was not correct");    
+    // pm.verify_password("asdf1234".to_string());
+    PM::menu();
 }
