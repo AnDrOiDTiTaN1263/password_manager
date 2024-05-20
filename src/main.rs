@@ -1,23 +1,21 @@
 mod entry;
 mod password_manager;
 mod helper;
-
-use std::{env, path::Path, fs::{self, File}, io::{stdin, Read, Write, stdout}, vec, process::exit};
+use std::{clone, env, fs::{self, File}, io::{stdin, Read, Write}, path::Path, process::exit, vec};
 use std::fs::read_to_string;
 use aead::{OsRng, KeyInit, Aead, AeadCore, generic_array::GenericArray, Key};
 use aes_gcm::{Aes256Gcm, AesGcm};
 use base64::{engine::general_purpose, Engine};
+// use password_manager::PasswordManager;
 use pbkdf2::pbkdf2_hmac;
 use rand::{RngCore, Rng};
 use sha2::Sha256;
-use termion::{raw::IntoRawMode, input::TermRead, event::Key as K};
-// use termion::{raw::IntoRawMode, input::TermRead};
 
 /*
     pbkdf usage: 
         -   use pbkdf to generate a key based on a password called a "key encryption key" or KEK
             use this "KEK" to encrypt the key used to encrypt/decrypt the data (actual key)
-        -   store only the salt and the actual key rest should be made available through code
+        -   store only the salt and encrypted actual key
         -   to get from KEK to actual key -> do pbkdf2 on a given password and the salt, then try to decrypt the encrypted using the result 
             you may store then nonce to assist in the deryption of the actual key as the nonce does not matter
             if the KEK was correct then it will decrypt successfully, otherwise will return error
@@ -25,6 +23,8 @@ use termion::{raw::IntoRawMode, input::TermRead, event::Key as K};
 */
 
 use entry::Entry;
+
+use crate::helper::take_input;
 #[allow(unused,dead_code)]
 struct PM{
     filepath: String,
@@ -84,51 +84,28 @@ impl PM{
         }
     }   
 
-
     fn take_new_entry_input(&mut self){
-        let mut input = String::new();
+        let mut input = None;
         println!("You can type in 'quit' anytime to quit the action");
         println!("enter the entry name: ");
-        stdin().read_line(&mut input);
-        if PM::check_is_input_quit(&input){
+        input = take_input("Enter the entry name: ".to_string(), false);
+        if input.is_none(){
+            // entry name is a non-null value
+            println!("Aborting command");
             return;
-        }   
-        input = input[0..input.len()-1].to_string();
+        }
+        let entry_name = input.clone().unwrap();
         println!("enter any notes for this entry, or just press enter to continue: ");
-        stdin().read_line(&mut input);
-        if PM::check_is_input_quit(&input){
-            return;
-        }   
-        input = input[0..input.len()-1].to_string();
-        let entry_name = input.clone();
-        input = "".to_string();
+        input = take_input("Enter any notes for this entry, or just press enter to continue: ".to_string(), false);
+        let mut entry_note =input.clone();
         println!("enter the entry username: ");
-        stdin().read_line(&mut input);
-        if PM::check_is_input_quit(&input){
-            return;
-        }   
-        input = input[0..input.len()-1].to_string();
+        input = take_input("Enter the entry's username".to_string(), false);
         let entry_user_name = input.clone();
-        input = "".to_string();
         println!("enter the entry password: ");
-        stdin().read_line(&mut input);
-        if PM::check_is_input_quit(&input){
-            return;
-        }   
-        input = input[0..input.len()-1].to_string();
+        // whilst it is actually a password input, it will be treated as a plain text at this stage, it will be changed later if required
+        input = take_input("Enter the entry's password (no password is accepted)".to_string(), false);
         let entry_pass = input.clone();
-        self.entries.push(Entry::new(entry_name, Some(entry_user_name), Some(entry_pass), None));
-    }
-    
-    fn check_is_input_quit(input:&String)->bool{
-        return input == "Quit" || input == "quit" || input == "QUIT"
-    }
-
-    fn confirm_input()->bool{
-        println!("press y to confirm or n to enter again:");
-        let mut buf = "".to_string();
-        stdin().read_line(&mut buf);
-        return buf == "Yes\n" || buf == "yes\n" || buf == "Y\n"|| buf == "y\n";
+        self.entries.push(Entry::new(entry_name,entry_user_name, entry_pass, entry_note));
     }
 
     /*
@@ -198,7 +175,6 @@ impl PM{
     
     fn split_cipher_text(cipher_text:Vec<u8>)->(Vec<u8>,Vec<u8>){
         let split: (&[u8], &[u8]) =   cipher_text.split_at(cipher_text.len()-12);
-        println!("{split:?}");
         (split.0.to_vec(), split.1.to_vec())
     }
 
@@ -220,11 +196,10 @@ impl PM{
     }
     
     fn decrypt(&self, cipher_text:Vec<u8>)->Option<Vec<u8>>{
-        /*TODO */
         match &self.cipher {
             Some(cipher)=>{
                 let split = PM::split_cipher_text(cipher_text);
-                return Some(cipher.decrypt(GenericArray::from_slice(split.1.as_slice()), split.0.as_slice()).expect("unable to decrypt"));
+                Some(cipher.decrypt(GenericArray::from_slice(split.1.as_slice()), split.0.as_slice()).expect("unable to decrypt"))
             }
             None=>{
                 println!("cipher was not initialised");
@@ -273,7 +248,6 @@ impl PM{
             let mut entry = self.encrypt(String::from_utf8(entry.stringify().into()).unwrap()).expect("unable to encrypt");
             to_write += &String::from_utf8(general_purpose::STANDARD.encode(entry).as_bytes().to_vec()).expect("unable to stringify base64");
             to_write += "\n";
-
         }
         to_write.pop();
         file.write_all(to_write.as_bytes());
@@ -286,9 +260,18 @@ impl PM{
         file.read_to_end(&mut buf).expect("unable to read from file");
         let mut contents: String = String::from_utf8(buf).expect("unable to stringify");
         let mut contents: Vec<&str> = contents.split("\n").collect::<Vec<&str>>();
+        //remove the hash from the contents
         contents.remove(0);
         for line in contents{
-            self.decrypt(general_purpose::STANDARD.decode(line).expect("unable to decode base64 bytes for decrypting")).expect("unable to decrypt");
+            self.entries.push(
+                Entry::parse(
+       String::from_utf8(
+                    self.decrypt(
+                general_purpose::STANDARD.decode(line).expect("unable to decode base64 bytes for decrypting"))
+                        .expect("unable to decrypt"))
+                    .expect("unable to stringify plaintext"))
+                .unwrap()
+            );
         }
     }
 
@@ -299,32 +282,97 @@ impl PM{
             entry.display();
         }
     }
-
-    fn menu(){
-        loop {
-            let stdin = stdin();
-            let mut stdout = stdout().into_raw_mode().unwrap();
-            write!(stdout, "press ESC to exit at any time").unwrap();
-            println!("{:?}",termion::terminal_size().expect("unable to get terminal size"));
-            stdout.flush().unwrap();
-            for c in stdin.keys(){
-                if c.unwrap() == K::Esc{
-                    exit(0);
-                }else{
-
-                }
-            }
-        }
+    fn print_menu_options(width: usize){
+        let other_width = width +2;
+        println!("{: ^width$}","Menu Options");
+        println!("{:-^other_width$}","");
+        println!("1.{:_>width$}"," Display entries");
+        println!("2.{:_>width$}"," Add entry");
+        println!("3.{:_>width$}"," Edit entry");
+        println!("4.{:_>width$}"," Delete entry");
+        println!("5.{:_>width$}"," Save and exit");
+        println!("6.{:_>width$}"," Exit NO SAVE");
     }
 
+    fn menu(&mut self){
+        let width = termion::terminal_size().unwrap().0 as usize/3;
+        let mut input = "".to_string();
+        println!("{:#^width$}"," Password Manager ");
+        println!();
+        loop{
+            // password verification loop, only exit upon the user directly wanting to quit or no password entry
+            let pass = helper::take_password_input();
+            if pass == ""{
+                println!("Exiting... no password given");
+                exit(0);
+            }
+            self.verify_password(pass);
+            // we break if the cipher is set (password was accepted)
+            if self.cipher.is_some(){
+                break;
+            }
+        }
+        self.read_entries_from_file();
+        // main loop
+        loop {
+            /*
+                #######    ######    #######   #######  ##              ##   #########  #######   ########## \n
+                ##    ##  ##    ##  ##        ##        ##              ##  ##       ## ##    ##  ##       ##\n
+                ##    ##  ##    ##  ##        ##        ##              ##  ##       ## ##    ##  ##       ##\n
+                #######   ########   ######    ######   ##      #       ##  ##       ## #######   ##       ##\n
+                ##        ##    ##        ##        ##  ##     # #      ##  ##       ## ####      ##       ##\n
+                ##        ##    ##        ##        ##  ##    #   #     ##  ##       ## ##  ##    ##       ##\n
+                ##        ##    ##  #######   #######    ######    ######   #########   ##    ##  ##########\n
+
+
+                ######    ####
+                ##   #########
+                ##   #########
+                ##   #########
+                ##   #########
+                ##   #########
+                ##   #########
+             */
+            
+            PM::print_menu_options(width);
+            stdin().read_line(&mut input).expect("unable to take input for menu");
+            input = input[..input.len()-1].to_string();
+            if input == "1".to_string(){
+                self.display_entries();
+            }else if input == "2".to_string(){
+                println!("Search ");
+
+            }
+            else if input == "3".to_string(){
+                println!("Add new entry");
+                self.take_new_entry_input();
+            }else if input == "4".to_string(){
+                println!("Edit entry");
+            }else if input == "5".to_string(){
+                println!("Delete entry");
+            }else if input == "6".to_string(){
+                println!("Saving entries...");
+                self.write_entries_to_file();
+                println!("Exiting...");
+                exit(0);
+            }else if input == "6".to_string(){
+                exit(0);
+            }else{
+                println!("Invalid input");
+            }
+            break;
+        }
+    }
 
 }
 
 
 
 fn main(){
-    // let pm = PM::default();
-    // let mut pm = PM::new("PMfiles/safe.pswd".to_string()).expect("filepath given in parameter was not correct");    
+    let mut pm = PM::new("PMfiles/safe.pswd".to_string()).unwrap();
+    pm.menu();
     // pm.verify_password("asdf1234".to_string());
-    PM::menu();
+    // pm.write_entries_to_file();
+    // pm.read_entries_from_file();
+    // pm.display_entries();
 }
