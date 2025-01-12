@@ -2,3 +2,4 @@
 PMfiles/*
 */*.pswd
 .vscode/*
+*.DS_Store
