@@ -1,8 +1,8 @@
 pub struct Entry{
-    entry_name: String,
-    entry_user_name: Option<String>,
-    entry_pass:Option<String>,
-    entry_note:Option<String>,
+    pub entry_name: String,
+    pub entry_user_name: Option<String>,
+    pub entry_pass:Option<String>,
+    pub entry_note:Option<String>,
 }
 #[allow(dead_code,unused)]
 impl Entry{
