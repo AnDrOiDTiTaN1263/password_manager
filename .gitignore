@@ -3,3 +3,17 @@ PMfiles/*
 */*.pswd
 .vscode/*
 *.DS_Store
+# dependencies
+frontend/node_modules
+
+# logs
+frontend/.log
+
+# next.js
+frontend/.next
+frontend/next-env.d.ts
+
+# build
+frontend/app
+frontend/dist
+frontend/renderer/.next
