@@ -5,16 +5,16 @@ use base64::{engine::general_purpose, Engine};
 use pbkdf2::pbkdf2_hmac;
 use rand::RngCore;
 use sha2::Sha256;
+use termion::terminal_size;
 use std::{fs::{read_to_string, File}, io::{stdin, Read, Write}, path::Path, process::exit};
 // use base64::{engine::general_purpose, Engine};
 // use pbkdf2::pbkdf2_hmac;
-use crate::{entry::Entry, helper::{self, take_input}};
+use crate::{entry::Entry, helper::{self, take_confirmed_input, take_input}};
 
 #[allow(dead_code, unused)]
 pub struct PasswordManager{
     filepath:String,
     entries: Vec<Entry>,
-    
     cipher:Option<Aes256Gcm>,
 }
 // #[allow(unused)]
@@ -239,7 +239,7 @@ impl PasswordManager{
                 if input == "1".to_string(){
                     self.display_entries();
                 }else if input == "2".to_string(){
-                    println!("Search ");
+                    self.search_menu();
                 }
                 else if input == "3".to_string(){
                     println!("Add new entry");
@@ -253,12 +253,41 @@ impl PasswordManager{
                     self.write_entries_to_file();
                     println!("Exiting...");
                     exit(0);
-                }else if input == "7".to_string(){
+                }else if input == "7".to_string() || input == "q".to_string() || input == "Q".to_string(){
+                    println!("Exiting...");
                     exit(0);
                 }else{
                     println!("Invalid input");
                 }
             }
         }
-    
+        
+        pub fn search(&self, search_string:String)->Vec<&Entry>{
+            let mut results = vec![];
+            for entry in &self.entries{
+                if entry.entry_user_name.clone().unwrap_or_default().contains(&search_string) || entry.entry_name.clone().contains(&search_string) || entry.entry_note.clone().unwrap_or_default().contains(&search_string){
+                    results.push(entry);
+                }
+            }
+            return results
+        }
+
+        fn search_menu(&mut self){
+            println!("Search menu");
+            let search_string = take_confirmed_input("Please enter the search string or press q to go back".to_string(), false);
+            if search_string != "q"{
+                let results = self.search(search_string);
+                for entry in results{
+                    println!("{}", String::from_utf8(vec![b'-'; ((terminal_size().unwrap().0) /3).into()]).unwrap());
+                    entry.display();
+                    println!();
+                }
+            }
+            loop {
+                let input = take_input(&"press q to exit search menu".to_string(), false);
+                if input.unwrap_or_default() == "q".to_string(){
+                    break;
+                }
+            }
+        }
 }
