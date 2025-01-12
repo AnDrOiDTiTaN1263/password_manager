@@ -4,7 +4,7 @@ pub fn check_is_input_quit(input:&String)->bool{
     return input == "Quit" || input == "quit" || input == "QUIT"
 }
 
-pub fn take_input(prompt:String, is_pass:bool)->Option<String>{
+pub fn take_input(prompt:&String, is_pass:bool)->Option<String>{
     let mut buf = "".to_string();
     if is_pass{
         buf = rpassword::prompt_password(prompt).expect("Unable to get password from user");
@@ -27,13 +27,14 @@ pub fn take_input(prompt:String, is_pass:bool)->Option<String>{
 pub fn take_confirmed_input(prompt:String, is_pass:bool)->String{
     loop{
         // keep taking input while the user does not confirm
-        let input = take_input(prompt.clone(), is_pass);
-        if input == ""{
-            return input;
+        let input = take_input(&prompt, is_pass);
+        if input.is_some(){
+            return input.unwrap();
         }
-        let confirmation = take_input("Confirm input? y/n or q to quit".to_string(), false).to_lowercase();
+        let confirmation = take_input(&"Confirm input? y/n or q to quit".to_string(), false)
+            .unwrap_or("n".to_string()).to_lowercase();
         if confirmation == "y"{
-            return  input;
+            return  input.unwrap();
         }if confirmation == "q"{
             return  "".to_string();
         }
