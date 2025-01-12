@@ -6,13 +6,11 @@ module.exports = {
     './renderer/components/**/*.{js,ts,jsx,tsx}',
   ],
   theme: {
-    colors: {
-      // use colors only specified
-      white: colors.white,
-      gray: colors.gray,
-      blue: colors.blue,
+    extend: {
+      animation:{
+        'spin-slow':'spin 3s ease-in-out infinite'
+      }
     },
-    extend: {},
   },
   plugins: [],
 }
