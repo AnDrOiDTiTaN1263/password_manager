@@ -3,16 +3,19 @@ import Head from 'next/head'
 import Link from 'next/link'
 import Image from 'next/image'
 import LoadingSpinner from '../components/loadingSpinner';
+import { useNavigate } from 'react-router-dom';
 
 export default function HomePage() {
   const [passInput, setPass] = useState("");
   const [showPass, setShowPass] = useState(false);
   const [showLoadingSpinner, setShowLoadingSpinner] = useState(false);
-  const handleSubmit = () =>{
+
+  const handleSubmit = (e) =>{
+    e.preventDefault();
     console.log('submitted')
     setShowLoadingSpinner(true);
     setTimeout(() => {
-      setShowLoadingSpinner(false)
+      setShowLoadingSpinner(false);
     }, 1000);
   }
 
